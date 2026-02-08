@@ -1,0 +1,72 @@
+/* React Aria ColorArea Styles */
+.react-aria-ColorArea {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  forced-color-adjust: none;
+}
+
+.react-aria-ColorArea [role=img] {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.react-aria-ColorArea .react-aria-ColorThumb {
+  border: 2px solid white;
+  box-shadow: 0 0 0 1px black, 0 0 2px 1px rgba(0, 0, 0, 0.3);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  forced-color-adjust: none;
+}
+
+.react-aria-ColorArea .react-aria-ColorThumb[data-focused] {
+  width: 24px;
+  height: 24px;
+}
+
+/* React Aria ColorSlider Styles */
+.react-aria-ColorSlider {
+  display: grid;
+  grid-template-areas: "label output"
+                       "track track";
+  grid-template-columns: 1fr auto;
+  gap: 4px;
+  width: 100%;
+  orientation: horizontal;
+  forced-color-adjust: none;
+}
+
+.react-aria-ColorSlider [slot=track] {
+  grid-area: track;
+  border-radius: inherit;
+  height: 100%;
+  forced-color-adjust: none;
+}
+
+.react-aria-ColorSlider .react-aria-ColorThumb {
+  border: 2px solid white;
+  box-shadow: 0 0 0 1px black, 0 0 2px 1px rgba(0, 0, 0, 0.3);
+  width: 20px;
+  height: 100%;
+  border-radius: 4px;
+  box-sizing: border-box;
+  top: 50%;
+  forced-color-adjust: none;
+}
+
+.react-aria-ColorSlider .react-aria-ColorThumb[data-focused] {
+  width: 24px;
+}
+
+/* Popover styles */
+.react-aria-Popover {
+  outline: none;
+}
+
+.react-aria-Popover[data-trigger=DialogTrigger] {
+  max-width: unset;
+}

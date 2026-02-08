@@ -1,6 +1,10 @@
 import { IconGridDots, IconShare } from '@tabler/icons-react';
 
-export default function Header() {
+interface HeaderProps {
+  roomId?: string;
+}
+
+export default function Header({ roomId }: HeaderProps) {
   return (
     <header className="fixed top-0 left-0 right-0 h-16 border-b border-slate-200 bg-white/80 backdrop-blur-md flex items-center justify-between px-6 z-50">
       <div className="flex items-center gap-4">
@@ -9,7 +13,9 @@ export default function Header() {
         </div>
         <div>
           <h1 className="text-lg font-bold leading-tight tracking-tight text-slate-800">PixelCollab</h1>
-          <p className="text-[10px] text-primary uppercase tracking-widest font-bold">Canvas: Fresh Start</p>
+          <p className="text-[10px] text-primary uppercase tracking-widest font-bold">
+            {roomId ? `Room: ${roomId}` : 'Canvas: Fresh Start'}
+          </p>
         </div>
       </div>
 

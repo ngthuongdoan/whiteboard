@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Space_Grotesk } from "next/font/google";
 import "./globals.css";
+import { ColorStoreProvider } from "@/stores/providers/color-store-provider";
 
 // Load Material Symbols font
 const materialSymbols = {
@@ -28,7 +29,9 @@ export default function RootLayout({
       <body
         className={`${spaceGrotesk.variable} antialiased`}
       >
-        {children}
+        <ColorStoreProvider>
+          {children}
+        </ColorStoreProvider>
       </body>
     </html>
   );
