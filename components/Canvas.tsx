@@ -95,7 +95,7 @@ export default function Canvas() {
   };
 
   return (
-    <main className="relative w-screen h-screen pt-16 bg-slate-50 overflow-hidden cursor-crosshair">
+    <main className="relative w-screen h-screen pt-16 bg-slate-50 overflow-hidden cursor-none">
       <div className="absolute inset-0 bg-white pixel-grid pointer-events-none"></div>
 
       {/* Canvas Element */}

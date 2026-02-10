@@ -1,31 +1,27 @@
 'use client';
 
-import { IconPlus, IconCheck } from '@tabler/icons-react';
-import { useState } from 'react';
-import { useColorStore } from '@/stores/providers/color-store-provider';
-import type { ColorSwatch } from '@/stores/color-store';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
   DialogTrigger,
-  Button,
-  Popover,
-  ColorArea as AriaColorArea,
-  ColorSlider
-} from 'react-aria-components';
-import { parseColor } from '@react-stately/color';
-import type { Color } from '@react-stately/color';
-import './ColorPicker.css';
+} from '@/components/ui/dialog';
+import type { ColorSwatch } from '@/stores/color-store';
+import { useColorStore } from '@/stores/providers/color-store-provider';
+import { IconCheck, IconPlus } from '@tabler/icons-react';
+import Color from 'color';
+import { useState } from 'react';
+import { ColorPicker, ColorPickerAlpha, ColorPickerEyeDropper, ColorPickerFormat, ColorPickerHue, ColorPickerSelection, ColorPreview } from './ui/color-picker';
 
 export default function ColorsPalette() {
   const { activeColor, allColors, setActiveColor, addCustomColor } = useColorStore();
-  const [pickerColor, setPickerColor] = useState<Color>(parseColor('hsl(0, 100%, 50%)'));
+  const [pickerColor, setPickerColor] = useState<Parameters<typeof Color>[0]>('#FF0000');
+  const [isOpen, setIsOpen] = useState(false);
 
   const handleColorClick = (color: ColorSwatch) => {
     setActiveColor(color);
-  };
-
-  const handleColorChange = (color: Color) => {
-    setPickerColor(color);
   };
 
   const handleColorSave = () => {
@@ -35,12 +31,12 @@ export default function ColorsPalette() {
       return;
     }
 
-    const hexColor = pickerColor.toString('hex').toUpperCase();
     const newSwatch: ColorSwatch = {
       name: 'Custom',
-      value: hexColor,
+      value: Color(pickerColor).hex().toUpperCase(),
     };
     addCustomColor(newSwatch);
+    setIsOpen(false);
   };
 
   return (
@@ -49,7 +45,7 @@ export default function ColorsPalette() {
       <div className="flex items-center gap-3 border-r border-slate-100 pr-4">
         <div
           className="size-10 rounded-lg border border-slate-200 shadow-inner cursor-pointer relative overflow-hidden group"
-          style={{ backgroundColor: activeColor.value }}
+          style={{ backgroundColor: Color(activeColor.value).hex() }}
         >
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
         </div>
@@ -58,7 +54,7 @@ export default function ColorsPalette() {
             {activeColor.name}
           </span>
           <span className="text-xs font-mono font-bold text-slate-700">
-            {activeColor.value}
+            {Color(activeColor.value).hex().toUpperCase()}
           </span>
         </div>
       </div>
@@ -66,14 +62,14 @@ export default function ColorsPalette() {
       {/* Color Swatches */}
       <div className="flex items-center gap-1.5">
         {allColors.map((color, index) => (
-          <button
+          <Button
             key={`${color.value}-${index}`}
-            className={`size-8 rounded-md border transition-all duration-200 relative group ${color.bg || ''
-              } ${activeColor.value === color.value
+            size={"icon"}
+            className={`transition-all duration-200 relative group ${activeColor.value === color.value
                 ? 'ring-2 ring-slate-400 ring-offset-2 scale-110'
                 : 'hover:scale-110 border-slate-200'
               }`}
-            style={!color.bg ? { backgroundColor: color.value } : {}}
+            style={{ backgroundColor: Color(color.value).hex() }}
             onClick={() => handleColorClick(color)}
             title={`${color.name} - ${color.value}`}
           >
@@ -82,86 +78,57 @@ export default function ColorsPalette() {
                 <IconCheck
                   size={16}
                   stroke={3}
-                  className={color.value === '#FFFFFF' ? 'text-slate-700' : 'text-white drop-shadow'}
+                  className={Color(color.value).hex().toUpperCase() === '#FFFFFF' ? 'text-slate-700' : 'text-white drop-shadow'}
                 />
               </div>
             )}
-          </button>
+          </Button>
         ))}
 
-        {/* Add Custom Color Button with ColorArea Picker */}
-        <DialogTrigger>
-          <Button className="size-8 rounded-md border border-slate-200 flex items-center justify-center hover:bg-slate-50 text-slate-400 hover:text-slate-600 transition-all hover:scale-110 outline-none">
-            <IconPlus size={16} stroke={2} />
-          </Button>
-          <Popover className="bg-white border border-slate-200 rounded-xl shadow-2xl p-4 z-50" placement="top">
-            <Dialog className="outline-none">
-              {({ close }) => (
-                <div className="flex flex-col gap-3">
-                  <h3 className="text-sm font-semibold text-slate-700">Pick a Custom Color</h3>
-
-                  {/* Color Area */}
-                  <div className="w-48 h-48 rounded-lg overflow-hidden border border-slate-200">
-                    <AriaColorArea
-                      value={pickerColor}
-                      onChange={handleColorChange}
-                      colorSpace="hsl"
-                      xChannel="saturation"
-                      yChannel="lightness"
-                      className="w-full h-full"
-                    />
-                  </div>
-
-                  {/* Hue Slider */}
-                  <div className="w-full h-6 rounded-md overflow-hidden border border-slate-200">
-                    <ColorSlider
-                      value={pickerColor}
-                      onChange={handleColorChange}
-                      colorSpace="hsl"
-                      channel="hue"
-                      className="h-full"
-                    />
-                  </div>
-
-                  {/* Color Preview and Hex Value */}
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="size-12 rounded-lg border border-slate-200"
-                      style={{ backgroundColor: pickerColor.toString('hex') }}
-                    />
-                    <div className="flex flex-col flex-1">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                        Preview
-                      </span>
-                      <span className="text-xs font-mono font-bold text-slate-700">
-                        {pickerColor.toString('hex').toUpperCase()}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        handleColorSave();
-                        close();
-                      }}
-                      className="flex-1 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors"
-                    >
-                      Add Color
-                    </button>
-                    <button
-                      onClick={close}
-                      className="px-4 py-2 bg-slate-100 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-200 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
+        {/* Add Custom Color Button with ColorPicker */}
+        <Dialog open={isOpen} onOpenChange={setIsOpen}>
+          <DialogTrigger asChild>
+            <button className="size-8 rounded-md border border-slate-200 flex items-center justify-center hover:bg-slate-50 text-slate-400 hover:text-slate-600 transition-all hover:scale-110">
+              <IconPlus size={16} stroke={2} />
+            </button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-md w-fit bg-white">
+            <DialogHeader>
+              <DialogTitle>Pick a Custom Color</DialogTitle>
+            </DialogHeader>
+            <div className="flex flex-col gap-4">
+              <ColorPicker
+                value={pickerColor}
+                onChange={value => setPickerColor(Color(value).hex().toUpperCase())}
+                className="h-auto w-64"
+              >
+                <ColorPickerSelection className="h-40 rounded-lg" />
+                <ColorPickerHue />
+                <ColorPickerAlpha />
+                <div className="flex items-center gap-2">
+                  <ColorPickerEyeDropper />
+                  <ColorPickerFormat />
+                  <ColorPreview />
                 </div>
-              )}
-            </Dialog>
-          </Popover>
-        </DialogTrigger>
+              </ColorPicker>
+              {/* Action Buttons */}
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleColorSave}
+                  className="flex-1"
+                >
+                  Add Color
+                </Button>
+                <Button
+                  onClick={() => setIsOpen(false)}
+                  variant="outline"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

@@ -1,6 +1,8 @@
+import Color from "color";
+
 export interface ColorSwatch {
   name: string;
-  value: string;
+  value: Parameters<typeof Color>[0];
   bg?: string;
 }
 
