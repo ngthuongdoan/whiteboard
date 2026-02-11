@@ -1,0 +1,3 @@
+export const CONFIGURATION = {
+  HEADER_HEIGHT: 64,
+}

@@ -1,7 +1,11 @@
 'use client';
 
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect } from 'react';
 import { IconPointer } from '@tabler/icons-react';
+import { Cursor, CursorFollow, CursorProvider } from './ui/animated-cursor';
+import { useColorStore } from '@/stores/providers/color-store-provider';
+import { useMousePositionStore } from '@/stores/providers/mouse-position-store-provider';
+import Color from 'color';
 
 interface Cursor {
   id: string;
@@ -22,10 +26,10 @@ const PIXEL_SIZE = 24; // Size of each pixel square
 const currentUser = { name: 'Happy Panda', color: 'purple', colorHex: '#a855f7' }; // Current user
 
 export default function Canvas() {
+  const { trackingRef } = useMousePositionStore();
+  const { activeColor } = useColorStore();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const contextRef = useRef<CanvasRenderingContext2D | null>(null);
-  const [mousePos, setMousePos] = useState({ x: 50, y: 50 }); // Current user cursor position in %
-  const [currentColor, setCurrentColor] = useState('#0F172A');
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -39,24 +43,6 @@ export default function Canvas() {
       const rect = canvas.getBoundingClientRect();
       canvas.width = rect.width;
       canvas.height = rect.height;
-
-      // Draw pixel grid
-      ctx.strokeStyle = '#f1f5f9';
-      ctx.lineWidth = 0.5;
-
-      for (let x = 0; x <= canvas.width; x += PIXEL_SIZE) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, canvas.height);
-        ctx.stroke();
-      }
-
-      for (let y = 0; y <= canvas.height; y += PIXEL_SIZE) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(canvas.width, y);
-        ctx.stroke();
-      }
     };
 
     resizeCanvas();
@@ -65,16 +51,6 @@ export default function Canvas() {
     window.addEventListener('resize', resizeCanvas);
     return () => window.removeEventListener('resize', resizeCanvas);
   }, []);
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    // Update cursor position as percentage for positioning
-    const xPercent = ((e.clientX - rect.left) / rect.width) * 100;
-    const yPercent = ((e.clientY - rect.top) / rect.height) * 100;
-    setMousePos({ x: xPercent, y: yPercent });
-  };
 
   const fillPixel = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!contextRef.current) return;
@@ -90,42 +66,39 @@ export default function Canvas() {
     const pixelY = Math.floor(y / PIXEL_SIZE) * PIXEL_SIZE;
 
     // Fill the pixel
-    contextRef.current.fillStyle = currentColor;
+    contextRef.current.fillStyle = Color(activeColor.value).hex();
     contextRef.current.fillRect(pixelX, pixelY, PIXEL_SIZE, PIXEL_SIZE);
   };
 
   return (
     <main className="relative w-screen h-screen pt-16 bg-slate-50 overflow-hidden cursor-none">
       <div className="absolute inset-0 bg-white pixel-grid pointer-events-none"></div>
-
-      {/* Canvas Element */}
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 w-full h-full"
-        onClick={fillPixel}
-        onMouseMove={handleMouseMove}
-      />
-
-      {/* Current User Cursor */}
-      <div
-        className="custom-cursor pointer-events-none"
-        style={{ top: `${mousePos.y}%`, left: `${mousePos.x}%` }}
-      >
-        <IconPointer
-          className="drop-shadow-sm"
-          style={{ color: currentUser.colorHex }}
-          size={30}
-          stroke={2}
-          fill="currentColor"
-        />
-        <div
-          className="ml-4 mt-1 px-3 py-1 text-white text-xs font-bold rounded-full shadow-lg flex items-center gap-1.5 whitespace-nowrap"
-          style={{ backgroundColor: currentUser.colorHex }}
-        >
-          <span>{currentUser.name} (You)</span>
+      <CursorProvider>
+        {/* Canvas Element */}
+        <div ref={trackingRef} className='w-full h-full'>
+          <canvas
+            ref={canvasRef}
+            className="absolute inset-0 w-full h-full"
+            onClick={fillPixel}
+          />
         </div>
-      </div>
-
+        <Cursor>
+          <IconPointer
+            className="drop-shadow-sm"
+            style={{ color: currentUser.colorHex }}
+            size={30}
+            stroke={2}
+            fill="currentColor"
+          />
+        </Cursor>
+        <CursorFollow align="bottom-right">
+          <div className="rounded-full px-2 py-1 text-xs text-white"
+            style={{ backgroundColor: currentUser.colorHex }}
+          >
+            {currentUser.name}
+          </div>
+        </CursorFollow>
+      </CursorProvider>
       {/* Collaborative Cursors */}
       {collaborativeCursors.map((cursor) => (
         <div
@@ -150,7 +123,7 @@ export default function Canvas() {
       ))}
 
       {/* Canvas Boundary */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-200 h-150 border border-slate-200/50 pointer-events-none"></div>
+      {/* <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-200 h-150 border border-slate-200/50 pointer-events-none"></div> */}
     </main>
   );
 }

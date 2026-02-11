@@ -6,7 +6,7 @@ interface HeaderProps {
 
 export default function Header({ roomId }: HeaderProps) {
   return (
-    <header className="fixed top-0 left-0 right-0 h-16 border-b border-slate-200 bg-white/80 backdrop-blur-md flex items-center justify-between px-6 z-50">
+    <header className="fixed top-0 left-0 right-0 h-18 border-b border-slate-200 bg-white/80 backdrop-blur-md flex items-center justify-between px-6 z-50">
       <div className="flex items-center gap-4">
         <div className="size-8 bg-primary rounded flex items-center justify-center text-white">
           <IconGridDots size={20} stroke={2.5} />
