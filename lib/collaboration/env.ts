@@ -1,4 +1,4 @@
-const DEFAULT_BACKEND_URL = "http://localhost:4001";
+const DEFAULT_BACKEND_URL = "https://whiteboard-be-dvh7.onrender.com";
 
 function normalizeBaseUrl(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
@@ -32,4 +32,3 @@ export function buildRoomWsUrl(roomId: string): string {
 
   return wsUrl.toString();
 }
-

@@ -7,7 +7,7 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 Create `whiteboard/.env.local`:
 
 ```bash
-NEXT_PUBLIC_WHITEBOARD_BE_URL=http://localhost:4001
+NEXT_PUBLIC_WHITEBOARD_BE_URL=https://whiteboard-be-dvh7.onrender.com
 # Optional, only when whiteboard-be AUTH_TOKEN is set:
 # NEXT_PUBLIC_WHITEBOARD_BE_AUTH_TOKEN=your-token
 ```
