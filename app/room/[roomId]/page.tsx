@@ -1,10 +1,6 @@
-import Canvas from '@/components/Canvas';
-import Header from '@/components/Header';
-import Tools from '@/components/Tools';
-import ColorsPalette from '@/components/ColorsPalette';
-import Chat from '@/components/Chat';
-import Coordinate from '@/components/Coordinate';
-import { MousePositionStoreProvider } from '@/stores/providers/mouse-position-store-provider';
+import { redirect } from "next/navigation";
+import RoomClient from "@/components/RoomClient";
+import { getBackendAuthToken, getRoomsApiUrl } from "@/lib/collaboration/env";
 
 interface RoomPageProps {
   params: Promise<{
@@ -14,17 +10,23 @@ interface RoomPageProps {
 
 export default async function RoomPage({ params }: RoomPageProps) {
   const { roomId } = await params;
+  const token = getBackendAuthToken();
 
-  return (
-    <div className="bg-slate-50 font-display text-slate-900 overflow-hidden selection:bg-primary/20">
-      <Header roomId={roomId} />
-      <MousePositionStoreProvider>
-        <Canvas />
-        <Tools />
-        <ColorsPalette />
-        <Coordinate />
-        <Chat />
-      </MousePositionStoreProvider>
-    </div>
-  );
+  try {
+    const response = await fetch(`${getRoomsApiUrl()}/${encodeURIComponent(roomId)}`, {
+      method: "GET",
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      cache: "no-store",
+    });
+
+    if (response.status === 404) {
+      redirect("/?joinError=room-not-found");
+    }
+  } catch {
+    // Fall through: if backend is temporarily unreachable, let the page render.
+  }
+
+  return <RoomClient roomId={roomId} />;
 }

@@ -15,7 +15,11 @@ import Color from 'color';
 import { useState } from 'react';
 import { ColorPicker, ColorPickerAlpha, ColorPickerEyeDropper, ColorPickerFormat, ColorPickerHue, ColorPickerSelection, ColorPreview } from './ui/color-picker';
 
-export default function ColorsPalette() {
+interface ColorsPaletteProps {
+  collapsed?: boolean;
+}
+
+export default function ColorsPalette({ collapsed = false }: ColorsPaletteProps) {
   const { activeColor, allColors, setActiveColor, addCustomColor } = useColorStore();
   const [pickerColor, setPickerColor] = useState<Parameters<typeof Color>[0]>('#FF0000');
   const [isOpen, setIsOpen] = useState(false);
@@ -40,7 +44,9 @@ export default function ColorsPalette() {
   };
 
   return (
-    <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4 p-3 bg-white border border-slate-200 rounded-2xl shadow-2xl z-40">
+    <div
+      className={`fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4 p-3 bg-white border border-slate-200 rounded-2xl shadow-2xl z-40 transition-transform duration-300 ${collapsed ? 'translate-y-32' : 'translate-y-0'}`}
+    >
       {/* Active Color Display */}
       <div className="flex items-center gap-3 border-r border-slate-100 pr-4">
         <div

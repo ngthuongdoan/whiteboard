@@ -2,6 +2,23 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+### Configure backend connection
+
+Create `whiteboard/.env.local`:
+
+```bash
+NEXT_PUBLIC_WHITEBOARD_BE_URL=http://localhost:4001
+# Optional, only when whiteboard-be AUTH_TOKEN is set:
+# NEXT_PUBLIC_WHITEBOARD_BE_AUTH_TOKEN=your-token
+```
+
+Run backend (`../whiteboard-be`):
+
+```bash
+npm install
+npm run dev
+```
+
 First, run the development server:
 
 ```bash

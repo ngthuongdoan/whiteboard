@@ -1,22 +1,87 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { IconGridDots, IconPlus, IconLogin, IconArrowRight } from '@tabler/icons-react';
+import { getBackendAuthToken, getRoomsApiUrl } from '@/lib/collaboration/env';
 
 export default function Home() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [roomId, setRoomId] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const createNewRoom = () => {
-    const newRoomId = generateRoomId();
-    router.push(`/room/${newRoomId}`);
+  useEffect(() => {
+    const joinError = searchParams.get('joinError');
+    if (joinError === 'room-not-found') {
+      setErrorMessage('Room not found. Create a room first, then share the room ID to join.');
+    }
+  }, [searchParams]);
+
+  const createNewRoom = async () => {
+    setIsCreating(true);
+    setErrorMessage(null);
+
+    try {
+      const token = getBackendAuthToken();
+      const response = await fetch(getRoomsApiUrl(), {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`create-room-failed:${response.status}`);
+      }
+
+      const payload: { id: string } = await response.json();
+      router.push(`/room/${payload.id}`);
+      return;
+    } catch {
+      const fallbackRoomId = generateRoomId();
+      setErrorMessage('Backend unavailable, using local fallback room id.');
+      router.push(`/room/${fallbackRoomId}`);
+    } finally {
+      setIsCreating(false);
+    }
   };
 
-  const joinRoom = (e: React.FormEvent) => {
+  const joinRoom = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (roomId.trim()) {
-      router.push(`/room/${roomId.trim()}`);
+    const normalized = roomId.trim();
+    if (!normalized) {
+      return;
+    }
+
+    setIsJoining(true);
+    setErrorMessage(null);
+
+    try {
+      const token = getBackendAuthToken();
+      const response = await fetch(`${getRoomsApiUrl()}/${encodeURIComponent(normalized)}`, {
+        method: 'GET',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+
+      if (response.status === 404) {
+        setErrorMessage('Room does not exist. Create a room first.');
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(`join-room-validation-failed:${response.status}`);
+      }
+
+      router.push(`/room/${normalized}`);
+    } catch {
+      setErrorMessage('Unable to validate room right now. Please try again.');
+    } finally {
+      setIsJoining(false);
     }
   };
 
@@ -51,10 +116,11 @@ export default function Home() {
         <div className="space-y-4">
           <button
             onClick={createNewRoom}
+            disabled={isCreating}
             className="w-full flex items-center justify-center gap-3 px-6 py-4 rounded-xl bg-primary text-white hover:bg-primary/90 transition-all text-base font-bold shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 hover:scale-[1.02]"
           >
             <IconPlus size={24} stroke={2.5} />
-            Create New Room
+            {isCreating ? 'Creating...' : 'Create New Room'}
           </button>
 
           <div className="relative">
@@ -79,14 +145,17 @@ export default function Home() {
             </div>
             <button
               type="submit"
-              disabled={!roomId.trim()}
+              disabled={!roomId.trim() || isJoining}
               className="w-full flex items-center justify-center gap-2 px-6 py-4 rounded-xl bg-slate-800 text-white hover:bg-slate-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all text-base font-bold shadow-md hover:shadow-lg hover:scale-[1.02] disabled:hover:scale-100"
             >
-              Join Room
+              {isJoining ? 'Joining...' : 'Join Room'}
               <IconArrowRight size={20} stroke={2.5} />
             </button>
           </form>
         </div>
+        {errorMessage ? (
+          <p className="text-sm text-amber-600 text-center">{errorMessage}</p>
+        ) : null}
 
         <div className="pt-8 border-t border-slate-200">
           <div className="grid grid-cols-3 gap-4 text-center">

@@ -3,11 +3,6 @@ import { Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { ColorStoreProvider } from "@/stores/providers/color-store-provider";
 
-// Load Material Symbols font
-const materialSymbols = {
-  className: 'material-symbols-outlined',
-};
-
 const spaceGrotesk = Space_Grotesk({
   variable: "--font-space-grotesk",
   subsets: ["latin"],

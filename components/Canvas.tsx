@@ -1,111 +1,273 @@
-'use client';
+"use client";
 
-import { useRef, useEffect } from 'react';
-import { IconPointer } from '@tabler/icons-react';
-import { Cursor, CursorFollow, CursorProvider } from './ui/animated-cursor';
-import { useColorStore } from '@/stores/providers/color-store-provider';
-import { useMousePositionStore } from '@/stores/providers/mouse-position-store-provider';
-import Color from 'color';
+import { useCallback, useEffect, useRef, useState } from "react";
+import { IconPointer } from "@tabler/icons-react";
+import { Awareness } from "y-protocols/awareness";
+import * as Y from "yjs";
+import Color from "color";
+import { Cursor, CursorFollow, CursorProvider } from "./ui/animated-cursor";
+import { useColorStore } from "@/stores/providers/color-store-provider";
+import { useMousePositionStore } from "@/stores/providers/mouse-position-store-provider";
+import { buildRoomWsUrl } from "@/lib/collaboration/env";
+import { ConnectionState, RealtimeClient } from "@/lib/collaboration/realtime-client";
 
-interface Cursor {
+const PIXEL_SIZE = 24;
+
+const ANIMALS = ["Panda", "Tiger", "Otter", "Fox", "Dolphin", "Hawk", "Koala", "Lynx"];
+const ADJECTIVES = ["Happy", "Swift", "Calm", "Curious", "Bold", "Mellow", "Clever", "Sunny"];
+const USER_COLORS = ["#6366F1", "#F97316", "#10B981", "#EC4899", "#0EA5E9", "#A855F7"];
+
+interface UserIdentity {
+  name: string;
+  colorHex: string;
+}
+
+interface PresenceState {
+  user?: UserIdentity;
+  cursor?: { x: number; y: number };
+  drawing?: boolean;
+}
+
+interface RemoteCursor {
   id: string;
   name: string;
-  color: string;
   colorHex: string;
   x: number;
   y: number;
 }
 
-const collaborativeCursors: Cursor[] = [
-  { id: '1', name: 'Sleepy Sloth', color: 'indigo', colorHex: '#6366f1', x: 25, y: 35 },
-  { id: '2', name: 'Jolly Giraffe', color: 'orange', colorHex: '#f97316', x: 65, y: 55 },
-  { id: '3', name: 'Dapper Duck', color: 'emerald', colorHex: '#10b981', x: 70, y: 20 },
-];
+export interface PresenceSnapshot {
+  online: number;
+  drawing: number;
+  connection: ConnectionState;
+}
 
-const PIXEL_SIZE = 24; // Size of each pixel square
-const currentUser = { name: 'Happy Panda', color: 'purple', colorHex: '#a855f7' }; // Current user
+interface CanvasProps {
+  roomId: string;
+  onPresenceChange?: (snapshot: PresenceSnapshot) => void;
+}
 
-export default function Canvas() {
-  const { trackingRef } = useMousePositionStore();
+function createIdentity(): UserIdentity {
+  const adjective = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+  const animal = ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
+  const colorHex = USER_COLORS[Math.floor(Math.random() * USER_COLORS.length)];
+  return { name: `${adjective} ${animal}`, colorHex };
+}
+
+function toPixelKey(x: number, y: number): string {
+  return `${x}:${y}`;
+}
+
+function parsePixelKey(key: string): { x: number; y: number } | null {
+  const [xRaw, yRaw] = key.split(":");
+  const x = Number(xRaw);
+  const y = Number(yRaw);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return null;
+  }
+  return { x, y };
+}
+
+export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
+  const { trackingRef, mouse } = useMousePositionStore();
   const { activeColor } = useColorStore();
+  const [remoteCursors, setRemoteCursors] = useState<RemoteCursor[]>([]);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const contextRef = useRef<CanvasRenderingContext2D | null>(null);
+  const pixelsRef = useRef<Y.Map<string> | null>(null);
+  const awarenessRef = useRef<Awareness | null>(null);
+  const [localUser] = useState<UserIdentity>(() => createIdentity());
+  const presenceRef = useRef<PresenceSnapshot>({
+    online: 1,
+    drawing: 0,
+    connection: "connecting",
+  });
+
+  const emitPresence = useCallback(
+    (next: Partial<PresenceSnapshot>) => {
+      presenceRef.current = { ...presenceRef.current, ...next };
+      onPresenceChange?.(presenceRef.current);
+    },
+    [onPresenceChange],
+  );
+
+  const redrawCanvas = useCallback(() => {
+    const ctx = contextRef.current;
+    const canvas = canvasRef.current;
+    const pixels = pixelsRef.current;
+    if (!ctx || !canvas || !pixels) {
+      return;
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (const [key, color] of pixels.entries()) {
+      const point = parsePixelKey(key);
+      if (!point) {
+        continue;
+      }
+      ctx.fillStyle = color;
+      ctx.fillRect(point.x, point.y, PIXEL_SIZE, PIXEL_SIZE);
+    }
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) {
+      return;
+    }
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return;
+    }
 
-    // Set canvas size to match container
     const resizeCanvas = () => {
       const rect = canvas.getBoundingClientRect();
       canvas.width = rect.width;
       canvas.height = rect.height;
+      redrawCanvas();
     };
 
-    resizeCanvas();
     contextRef.current = ctx;
+    resizeCanvas();
 
-    window.addEventListener('resize', resizeCanvas);
-    return () => window.removeEventListener('resize', resizeCanvas);
-  }, []);
+    window.addEventListener("resize", resizeCanvas);
+    return () => window.removeEventListener("resize", resizeCanvas);
+  }, [redrawCanvas]);
+
+  useEffect(() => {
+    const doc = new Y.Doc();
+    const awareness = new Awareness(doc);
+    const pixels = doc.getMap<string>("pixels");
+    pixelsRef.current = pixels;
+    awarenessRef.current = awareness;
+
+    const wsClient = new RealtimeClient({
+      doc,
+      awareness,
+      roomWsUrl: buildRoomWsUrl(roomId),
+      onConnectionStateChange: (state) => emitPresence({ connection: state }),
+    });
+
+    const reportPresence = () => {
+      const states = awareness.getStates();
+      const nextCursors: RemoteCursor[] = [];
+      let online = 0;
+      let drawing = 0;
+
+      for (const [clientId, raw] of states.entries()) {
+        const state = raw as PresenceState;
+        if (!state.user) {
+          continue;
+        }
+
+        online += 1;
+        if (state.drawing) {
+          drawing += 1;
+        }
+
+        if (clientId !== doc.clientID && state.cursor) {
+          nextCursors.push({
+            id: String(clientId),
+            name: state.user.name,
+            colorHex: state.user.colorHex,
+            x: state.cursor.x,
+            y: state.cursor.y,
+          });
+        }
+      }
+
+      setRemoteCursors(nextCursors);
+      emitPresence({ online: Math.max(1, online), drawing });
+    };
+
+    const onPixelsChanged = () => redrawCanvas();
+    const onAwarenessChanged = () => reportPresence();
+
+    pixels.observe(onPixelsChanged);
+    awareness.on("change", onAwarenessChanged);
+    awareness.setLocalState({
+      user: localUser,
+      drawing: false,
+    });
+
+    wsClient.connect();
+    reportPresence();
+    redrawCanvas();
+
+    return () => {
+      pixels.unobserve(onPixelsChanged);
+      awareness.off("change", onAwarenessChanged);
+      wsClient.disconnect();
+      pixelsRef.current = null;
+      awarenessRef.current = null;
+    };
+  }, [roomId, redrawCanvas, emitPresence, localUser]);
+
+  useEffect(() => {
+    const awareness = awarenessRef.current;
+    if (!awareness) {
+      return;
+    }
+
+    if (typeof mouse.elementX !== "number" || typeof mouse.elementY !== "number") {
+      return;
+    }
+
+    awareness.setLocalStateField("cursor", {
+      x: Math.max(0, Math.round(mouse.elementX)),
+      y: Math.max(0, Math.round(mouse.elementY)),
+    });
+  }, [mouse.elementX, mouse.elementY]);
 
   const fillPixel = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!contextRef.current) return;
-
     const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    const pixels = pixelsRef.current;
+    const awareness = awarenessRef.current;
+    if (!rect || !pixels || !awareness) {
+      return;
+    }
 
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-
-    // Calculate which pixel grid to fill
     const pixelX = Math.floor(x / PIXEL_SIZE) * PIXEL_SIZE;
     const pixelY = Math.floor(y / PIXEL_SIZE) * PIXEL_SIZE;
 
-    // Fill the pixel
-    contextRef.current.fillStyle = Color(activeColor.value).hex();
-    contextRef.current.fillRect(pixelX, pixelY, PIXEL_SIZE, PIXEL_SIZE);
+    awareness.setLocalStateField("drawing", true);
+    const colorHex = Color(activeColor.value).hex().toUpperCase();
+    pixels.set(toPixelKey(pixelX, pixelY), colorHex);
+
+    window.setTimeout(() => {
+      awareness.setLocalStateField("drawing", false);
+    }, 120);
   };
 
   return (
     <main className="relative w-screen h-screen pt-16 bg-slate-50 overflow-hidden cursor-none">
       <div className="absolute inset-0 bg-white pixel-grid pointer-events-none"></div>
       <CursorProvider>
-        {/* Canvas Element */}
-        <div ref={trackingRef} className='w-full h-full'>
-          <canvas
-            ref={canvasRef}
-            className="absolute inset-0 w-full h-full"
-            onClick={fillPixel}
-          />
+        <div ref={trackingRef} className="w-full h-full">
+          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" onClick={fillPixel} />
         </div>
         <Cursor>
           <IconPointer
             className="drop-shadow-sm"
-            style={{ color: currentUser.colorHex }}
+            style={{ color: localUser.colorHex }}
             size={30}
             stroke={2}
             fill="currentColor"
           />
         </Cursor>
         <CursorFollow align="bottom-right">
-          <div className="rounded-full px-2 py-1 text-xs text-white"
-            style={{ backgroundColor: currentUser.colorHex }}
-          >
-            {currentUser.name}
+          <div className="rounded-full px-2 py-1 text-xs text-white" style={{ backgroundColor: localUser.colorHex }}>
+            {localUser.name}
           </div>
         </CursorFollow>
       </CursorProvider>
-      {/* Collaborative Cursors */}
-      {collaborativeCursors.map((cursor) => (
-        <div
-          key={cursor.id}
-          className="custom-cursor"
-          style={{ top: `${cursor.y}%`, left: `${cursor.x}%` }}
-        >
+
+      {remoteCursors.map((cursor) => (
+        <div key={cursor.id} className="custom-cursor" style={{ top: cursor.y, left: cursor.x }}>
           <IconPointer
             className="drop-shadow-sm"
             style={{ color: cursor.colorHex }}
@@ -121,9 +283,6 @@ export default function Canvas() {
           </div>
         </div>
       ))}
-
-      {/* Canvas Boundary */}
-      {/* <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-200 h-150 border border-slate-200/50 pointer-events-none"></div> */}
     </main>
   );
 }
