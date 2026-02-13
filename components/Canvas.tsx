@@ -19,19 +19,14 @@ interface ViewportState {
   x: number;
   y: number;
   scale: number;
-  rotationDeg: number;
 }
 
 interface GestureState {
-  mode: "none" | "pan" | "pinch";
-  startX: number;
-  startY: number;
+  mode: "none" | "draw" | "two";
   initialX: number;
   initialY: number;
   initialScale: number;
-  initialRotationDeg: number;
   initialDistance: number;
-  initialAngleDeg: number;
   initialMidX: number;
   initialMidY: number;
 }
@@ -45,6 +40,7 @@ const CANVAS_WIDTH = 2400;
 const CANVAS_HEIGHT = 1600;
 const MIN_SCALE = 0.4;
 const MAX_SCALE = 3.5;
+const GRID_SIZE = 40;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -56,12 +52,14 @@ function touchDistance(t1: GestureTouchPoint, t2: GestureTouchPoint): number {
   return Math.hypot(dx, dy);
 }
 
-function touchAngleDeg(t1: GestureTouchPoint, t2: GestureTouchPoint): number {
-  return (Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX) * 180) / Math.PI;
-}
-
-function touchMidpoint(t1: GestureTouchPoint, t2: GestureTouchPoint): { x: number; y: number } {
-  return { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
+function touchMidpoint(
+  t1: GestureTouchPoint,
+  t2: GestureTouchPoint,
+): { x: number; y: number } {
+  return {
+    x: (t1.clientX + t2.clientX) / 2,
+    y: (t1.clientY + t2.clientY) / 2,
+  };
 }
 
 function renderGrid(context: CanvasRenderingContext2D): void {
@@ -70,13 +68,15 @@ function renderGrid(context: CanvasRenderingContext2D): void {
 
   context.strokeStyle = "#e2e8f0";
   context.lineWidth = 1;
-  for (let x = 0; x <= CANVAS_WIDTH; x += 40) {
+
+  for (let x = 0; x <= CANVAS_WIDTH; x += GRID_SIZE) {
     context.beginPath();
     context.moveTo(x + 0.5, 0);
     context.lineTo(x + 0.5, CANVAS_HEIGHT);
     context.stroke();
   }
-  for (let y = 0; y <= CANVAS_HEIGHT; y += 40) {
+
+  for (let y = 0; y <= CANVAS_HEIGHT; y += GRID_SIZE) {
     context.beginPath();
     context.moveTo(0, y + 0.5);
     context.lineTo(CANVAS_WIDTH, y + 0.5);
@@ -84,27 +84,50 @@ function renderGrid(context: CanvasRenderingContext2D): void {
   }
 }
 
+function fillPixel(
+  ctx: CanvasRenderingContext2D,
+  clientX: number,
+  clientY: number,
+  view: ViewportState,
+  canvas: HTMLCanvasElement,
+) {
+  const rect = canvas.getBoundingClientRect();
+
+  // Convert screen → canvas coordinates
+  const x =
+    (clientX - rect.left - rect.width / 2 - view.x) / view.scale +
+    CANVAS_WIDTH / 2;
+
+  const y =
+    (clientY - rect.top - rect.height / 2 - view.y) / view.scale +
+    CANVAS_HEIGHT / 2;
+
+  const snappedX = Math.floor(x / GRID_SIZE) * GRID_SIZE;
+  const snappedY = Math.floor(y / GRID_SIZE) * GRID_SIZE;
+
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(snappedX, snappedY, GRID_SIZE, GRID_SIZE);
+}
+
 export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
   const gestureRef = useRef<GestureState>({
     mode: "none",
-    startX: 0,
-    startY: 0,
     initialX: 0,
     initialY: 0,
     initialScale: 1,
-    initialRotationDeg: 0,
     initialDistance: 0,
-    initialAngleDeg: 0,
     initialMidX: 0,
     initialMidY: 0,
   });
+
   const { trackingRef } = useMousePositionStore();
+
   const [view, setView] = useState<ViewportState>({
     x: 0,
     y: 0,
     scale: 1,
-    rotationDeg: 0,
   });
 
   useEffect(() => {
@@ -117,33 +140,33 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) {
-      return;
-    }
-    const context = canvas.getContext("2d");
-    if (!context) {
-      return;
-    }
-    renderGrid(context);
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    renderGrid(ctx);
   }, []);
 
   const transform = useMemo(
     () =>
-      `translate(-50%, -50%) translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale}) rotate(${view.rotationDeg}deg)`,
+      `translate(-50%, -50%) translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})`,
     [view],
   );
 
   const onTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
     if (event.touches.length === 1) {
       const touch = event.touches[0];
-      gestureRef.current = {
-        ...gestureRef.current,
-        mode: "pan",
-        startX: touch.clientX,
-        startY: touch.clientY,
-        initialX: view.x,
-        initialY: view.y,
-      };
+
+      gestureRef.current.mode = "draw";
+
+      fillPixel(ctx, touch.clientX, touch.clientY, view, canvas);
       return;
     }
 
@@ -151,15 +174,13 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
       const t1 = event.touches[0];
       const t2 = event.touches[1];
       const midpoint = touchMidpoint(t1, t2);
+
       gestureRef.current = {
-        ...gestureRef.current,
-        mode: "pinch",
+        mode: "two",
         initialX: view.x,
         initialY: view.y,
         initialScale: view.scale,
-        initialRotationDeg: view.rotationDeg,
         initialDistance: touchDistance(t1, t2),
-        initialAngleDeg: touchAngleDeg(t1, t2),
         initialMidX: midpoint.x,
         initialMidY: midpoint.y,
       };
@@ -168,31 +189,40 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
 
   const onTouchMove = (event: TouchEvent<HTMLDivElement>) => {
     event.preventDefault();
-    const gesture = gestureRef.current;
 
-    if (gesture.mode === "pan" && event.touches.length === 1) {
+    const gesture = gestureRef.current;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    if (gesture.mode === "draw" && event.touches.length === 1) {
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
       const touch = event.touches[0];
-      setView((previous) => ({
-        ...previous,
-        x: gesture.initialX + (touch.clientX - gesture.startX),
-        y: gesture.initialY + (touch.clientY - gesture.startY),
-      }));
+      fillPixel(ctx, touch.clientX, touch.clientY, view, canvas);
       return;
     }
 
-    if (gesture.mode === "pinch" && event.touches.length >= 2) {
+    if (gesture.mode === "two" && event.touches.length >= 2) {
       const t1 = event.touches[0];
       const t2 = event.touches[1];
-      const nextDistance = touchDistance(t1, t2);
-      const nextAngleDeg = touchAngleDeg(t1, t2);
+
       const midpoint = touchMidpoint(t1, t2);
-      const ratio = gesture.initialDistance > 0 ? nextDistance / gesture.initialDistance : 1;
+      const distance = touchDistance(t1, t2);
+
+      const ratio =
+        gesture.initialDistance > 0
+          ? distance / gesture.initialDistance
+          : 1;
 
       setView({
         x: gesture.initialX + (midpoint.x - gesture.initialMidX),
         y: gesture.initialY + (midpoint.y - gesture.initialMidY),
-        scale: clamp(gesture.initialScale * ratio, MIN_SCALE, MAX_SCALE),
-        rotationDeg: gesture.initialRotationDeg + (nextAngleDeg - gesture.initialAngleDeg),
+        scale: clamp(
+          gesture.initialScale * ratio,
+          MIN_SCALE,
+          MAX_SCALE,
+        ),
       });
     }
   };
@@ -200,18 +230,6 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
   const onTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
     if (event.touches.length === 0) {
       gestureRef.current.mode = "none";
-      return;
-    }
-    if (event.touches.length === 1) {
-      const touch = event.touches[0];
-      gestureRef.current = {
-        ...gestureRef.current,
-        mode: "pan",
-        startX: touch.clientX,
-        startY: touch.clientY,
-        initialX: view.x,
-        initialY: view.y,
-      };
     }
   };
 
