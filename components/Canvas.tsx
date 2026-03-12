@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
+import Color from "color";
 import { buildRoomWsUrl } from "@/lib/collaboration/env";
 import { RealtimeClient, type ConnectionState } from "@/lib/collaboration/realtime-client";
 import { useMousePositionStore } from "@/stores/providers/mouse-position-store-provider";
+import { useColorStore } from "@/stores/providers/color-store-provider";
 
 export interface PresenceSnapshot {
   online: number;
@@ -124,11 +126,13 @@ function paintCell(
 }
 
 export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
+  const { activeColor } = useColorStore();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const activePointersRef = useRef<Map<number, GestureTouchPoint>>(new Map());
   const pixelsRef = useRef<Y.Map<string> | null>(null);
   const awarenessRef = useRef<Awareness | null>(null);
   const connectionStateRef = useRef<ConnectionState>("connecting");
+  const activeColorRef = useRef<string>(DEFAULT_PIXEL_COLOR);
 
   const gestureRef = useRef<GestureState>({
     mode: "none",
@@ -153,6 +157,10 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
   useEffect(() => {
     viewRef.current = view;
   }, [view]);
+
+  useEffect(() => {
+    activeColorRef.current = Color(activeColor.value).hex().toUpperCase();
+  }, [activeColor]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -255,8 +263,9 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
       awarenessRef.current?.setLocalStateField("drawing", true);
 
       const snapped = getSnappedCell(event.clientX, event.clientY, currentView, canvas);
-      pixelsRef.current?.set(`${snapped.x},${snapped.y}`, DEFAULT_PIXEL_COLOR);
-      paintCell(ctx, snapped.x, snapped.y, DEFAULT_PIXEL_COLOR);
+      const color = activeColorRef.current;
+      pixelsRef.current?.set(`${snapped.x},${snapped.y}`, color);
+      paintCell(ctx, snapped.x, snapped.y, color);
       return;
     }
 
@@ -302,8 +311,9 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
       if (!ctx) return;
 
       const snapped = getSnappedCell(event.clientX, event.clientY, viewRef.current, canvas);
-      pixelsRef.current?.set(`${snapped.x},${snapped.y}`, DEFAULT_PIXEL_COLOR);
-      paintCell(ctx, snapped.x, snapped.y, DEFAULT_PIXEL_COLOR);
+      const color = activeColorRef.current;
+      pixelsRef.current?.set(`${snapped.x},${snapped.y}`, color);
+      paintCell(ctx, snapped.x, snapped.y, color);
       return;
     }
 
