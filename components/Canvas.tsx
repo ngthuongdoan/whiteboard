@@ -8,6 +8,7 @@ import { buildRoomWsUrl } from "@/lib/collaboration/env";
 import { RealtimeClient, type ConnectionState } from "@/lib/collaboration/realtime-client";
 import { useMousePositionStore } from "@/stores/providers/mouse-position-store-provider";
 import { useColorStore } from "@/stores/providers/color-store-provider";
+import { useDrawingToolStore, type DrawingTool } from "@/stores/drawing-tool-store";
 
 export interface PresenceSnapshot {
   online: number;
@@ -49,6 +50,7 @@ const MAX_SCALE = 3.5;
 const GRID_SIZE = 40;
 const PIXELS_MAP_NAME = "pixels";
 const DEFAULT_PIXEL_COLOR = "#000000";
+const DEFAULT_CANVAS_COLOR = "#ffffff";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -125,14 +127,29 @@ function paintCell(
   ctx.fillRect(x, y, GRID_SIZE, GRID_SIZE);
 }
 
+function clearCellToInitialState(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+): void {
+  ctx.fillStyle = DEFAULT_CANVAS_COLOR;
+  ctx.fillRect(x, y, GRID_SIZE, GRID_SIZE);
+
+  ctx.strokeStyle = "#e2e8f0";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, GRID_SIZE, GRID_SIZE);
+}
+
 export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
   const { activeColor } = useColorStore();
+  const activeTool = useDrawingToolStore((state) => state.activeTool);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const activePointersRef = useRef<Map<number, GestureTouchPoint>>(new Map());
   const pixelsRef = useRef<Y.Map<string> | null>(null);
   const awarenessRef = useRef<Awareness | null>(null);
   const connectionStateRef = useRef<ConnectionState>("connecting");
   const activeColorRef = useRef<string>(DEFAULT_PIXEL_COLOR);
+  const activeToolRef = useRef<DrawingTool>("pencil");
 
   const gestureRef = useRef<GestureState>({
     mode: "none",
@@ -161,6 +178,28 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
   useEffect(() => {
     activeColorRef.current = Color(activeColor.value).hex().toUpperCase();
   }, [activeColor]);
+
+  useEffect(() => {
+    activeToolRef.current = activeTool;
+  }, [activeTool]);
+
+  const applyToolAtCell = (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+  ) => {
+    const key = `${x},${y}`;
+
+    if (activeToolRef.current === "eraser") {
+      pixelsRef.current?.delete(key);
+      clearCellToInitialState(ctx, x, y);
+      return;
+    }
+
+    const color = activeColorRef.current;
+    pixelsRef.current?.set(key, color);
+    paintCell(ctx, x, y, color);
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -263,9 +302,7 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
       awarenessRef.current?.setLocalStateField("drawing", true);
 
       const snapped = getSnappedCell(event.clientX, event.clientY, currentView, canvas);
-      const color = activeColorRef.current;
-      pixelsRef.current?.set(`${snapped.x},${snapped.y}`, color);
-      paintCell(ctx, snapped.x, snapped.y, color);
+      applyToolAtCell(ctx, snapped.x, snapped.y);
       return;
     }
 
@@ -311,9 +348,7 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
       if (!ctx) return;
 
       const snapped = getSnappedCell(event.clientX, event.clientY, viewRef.current, canvas);
-      const color = activeColorRef.current;
-      pixelsRef.current?.set(`${snapped.x},${snapped.y}`, color);
-      paintCell(ctx, snapped.x, snapped.y, color);
+      applyToolAtCell(ctx, snapped.x, snapped.y);
       return;
     }
 
