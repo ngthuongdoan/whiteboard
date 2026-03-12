@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import type { ConnectionState } from "@/lib/collaboration/realtime-client";
 import { useMousePositionStore } from "@/stores/providers/mouse-position-store-provider";
 
@@ -23,6 +23,7 @@ interface ViewportState {
 
 interface GestureState {
   mode: "none" | "draw" | "two";
+  drawingPointerId: number | null;
   initialX: number;
   initialY: number;
   initialScale: number;
@@ -111,9 +112,11 @@ function fillPixel(
 
 export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const activePointersRef = useRef<Map<number, GestureTouchPoint>>(new Map());
 
   const gestureRef = useRef<GestureState>({
     mode: "none",
+    drawingPointerId: null,
     initialX: 0,
     initialY: 0,
     initialScale: 1,
@@ -129,6 +132,11 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
     y: 0,
     scale: 1,
   });
+  const viewRef = useRef(view);
+
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
 
   useEffect(() => {
     onPresenceChange?.({
@@ -154,32 +162,45 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
     [view],
   );
 
-  const onTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+  const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    if (event.touches.length === 1) {
-      const touch = event.touches[0];
+    activePointersRef.current.set(event.pointerId, {
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
 
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const pointers = Array.from(activePointersRef.current.values());
+    const currentView = viewRef.current;
+
+    if (pointers.length === 1) {
       gestureRef.current.mode = "draw";
+      gestureRef.current.drawingPointerId = event.pointerId;
 
-      fillPixel(ctx, touch.clientX, touch.clientY, view, canvas);
+      fillPixel(ctx, event.clientX, event.clientY, currentView, canvas);
       return;
     }
 
-    if (event.touches.length >= 2) {
-      const t1 = event.touches[0];
-      const t2 = event.touches[1];
+    if (pointers.length >= 2) {
+      const [t1, t2] = pointers;
       const midpoint = touchMidpoint(t1, t2);
 
       gestureRef.current = {
         mode: "two",
-        initialX: view.x,
-        initialY: view.y,
-        initialScale: view.scale,
+        drawingPointerId: null,
+        initialX: currentView.x,
+        initialY: currentView.y,
+        initialScale: currentView.scale,
         initialDistance: touchDistance(t1, t2),
         initialMidX: midpoint.x,
         initialMidY: midpoint.y,
@@ -187,25 +208,35 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
     }
   };
 
-  const onTouchMove = (event: TouchEvent<HTMLDivElement>) => {
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
 
     const gesture = gestureRef.current;
     const canvas = canvasRef.current;
     if (!canvas) return;
+    if (!activePointersRef.current.has(event.pointerId)) return;
 
-    if (gesture.mode === "draw" && event.touches.length === 1) {
+    activePointersRef.current.set(event.pointerId, {
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+
+    const pointers = Array.from(activePointersRef.current.values());
+
+    if (
+      gesture.mode === "draw" &&
+      gesture.drawingPointerId === event.pointerId &&
+      pointers.length === 1
+    ) {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      const touch = event.touches[0];
-      fillPixel(ctx, touch.clientX, touch.clientY, view, canvas);
+      fillPixel(ctx, event.clientX, event.clientY, viewRef.current, canvas);
       return;
     }
 
-    if (gesture.mode === "two" && event.touches.length >= 2) {
-      const t1 = event.touches[0];
-      const t2 = event.touches[1];
+    if (gesture.mode === "two" && pointers.length >= 2) {
+      const [t1, t2] = pointers;
 
       const midpoint = touchMidpoint(t1, t2);
       const distance = touchDistance(t1, t2);
@@ -215,7 +246,7 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
           ? distance / gesture.initialDistance
           : 1;
 
-      setView({
+      const nextView = {
         x: gesture.initialX + (midpoint.x - gesture.initialMidX),
         y: gesture.initialY + (midpoint.y - gesture.initialMidY),
         scale: clamp(
@@ -223,13 +254,34 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
           MIN_SCALE,
           MAX_SCALE,
         ),
-      });
+      };
+
+      viewRef.current = nextView;
+      setView(nextView);
     }
   };
 
-  const onTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
-    if (event.touches.length === 0) {
+  const onPointerEnd = (event: PointerEvent<HTMLDivElement>) => {
+    if (activePointersRef.current.has(event.pointerId)) {
+      activePointersRef.current.delete(event.pointerId);
+    }
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    const remaining = activePointersRef.current.size;
+
+    if (remaining === 0) {
       gestureRef.current.mode = "none";
+      gestureRef.current.drawingPointerId = null;
+      return;
+    }
+
+    if (remaining === 1) {
+      const [pointerId] = activePointersRef.current.keys();
+      gestureRef.current.mode = "draw";
+      gestureRef.current.drawingPointerId = pointerId;
     }
   };
 
@@ -237,10 +289,10 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
     <div
       ref={trackingRef}
       className="fixed inset-0 top-18 overflow-hidden bg-slate-100"
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-      onTouchCancel={onTouchEnd}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerEnd}
+      onPointerCancel={onPointerEnd}
       style={{ touchAction: "none" }}
       aria-label="Collaborative canvas"
       role="img"
