@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
-import type { ConnectionState } from "@/lib/collaboration/realtime-client";
+import { Awareness } from "y-protocols/awareness";
+import * as Y from "yjs";
+import { buildRoomWsUrl } from "@/lib/collaboration/env";
+import { RealtimeClient, type ConnectionState } from "@/lib/collaboration/realtime-client";
 import { useMousePositionStore } from "@/stores/providers/mouse-position-store-provider";
 
 export interface PresenceSnapshot {
@@ -42,6 +45,8 @@ const CANVAS_HEIGHT = 1600;
 const MIN_SCALE = 0.4;
 const MAX_SCALE = 3.5;
 const GRID_SIZE = 40;
+const PIXELS_MAP_NAME = "pixels";
+const DEFAULT_PIXEL_COLOR = "#000000";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -85,16 +90,15 @@ function renderGrid(context: CanvasRenderingContext2D): void {
   }
 }
 
-function fillPixel(
-  ctx: CanvasRenderingContext2D,
+function getSnappedCell(
   clientX: number,
   clientY: number,
   view: ViewportState,
   canvas: HTMLCanvasElement,
-) {
+): { x: number; y: number } {
   const rect = canvas.getBoundingClientRect();
 
-  // Convert screen → canvas coordinates
+  // Convert screen to canvas coordinates before snapping to the grid.
   const x =
     (clientX - rect.left - rect.width / 2 - view.x) / view.scale +
     CANVAS_WIDTH / 2;
@@ -103,16 +107,28 @@ function fillPixel(
     (clientY - rect.top - rect.height / 2 - view.y) / view.scale +
     CANVAS_HEIGHT / 2;
 
-  const snappedX = Math.floor(x / GRID_SIZE) * GRID_SIZE;
-  const snappedY = Math.floor(y / GRID_SIZE) * GRID_SIZE;
+  return {
+    x: Math.floor(x / GRID_SIZE) * GRID_SIZE,
+    y: Math.floor(y / GRID_SIZE) * GRID_SIZE,
+  };
+}
 
-  ctx.fillStyle = "#000000";
-  ctx.fillRect(snappedX, snappedY, GRID_SIZE, GRID_SIZE);
+function paintCell(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  color: string,
+): void {
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, GRID_SIZE, GRID_SIZE);
 }
 
 export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const activePointersRef = useRef<Map<number, GestureTouchPoint>>(new Map());
+  const pixelsRef = useRef<Y.Map<string> | null>(null);
+  const awarenessRef = useRef<Awareness | null>(null);
+  const connectionStateRef = useRef<ConnectionState>("connecting");
 
   const gestureRef = useRef<GestureState>({
     mode: "none",
@@ -139,22 +155,72 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
   }, [view]);
 
   useEffect(() => {
-    onPresenceChange?.({
-      online: 1,
-      drawing: 0,
-      connection: roomId.length > 0 ? "connected" : "disconnected",
-    });
-  }, [onPresenceChange, roomId]);
-
-  useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) {
+      return;
+    }
 
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) {
+      return;
+    }
 
-    renderGrid(ctx);
-  }, []);
+    const doc = new Y.Doc();
+    const awareness = new Awareness(doc);
+    const pixels = doc.getMap<string>(PIXELS_MAP_NAME);
+    awareness.setLocalStateField("drawing", false);
+
+    const publishPresence = () => {
+      const states = Array.from(awareness.getStates().values()) as Array<{ drawing?: boolean }>;
+      onPresenceChange?.({
+        online: states.length,
+        drawing: states.filter((state) => Boolean(state?.drawing)).length,
+        connection: connectionStateRef.current,
+      });
+    };
+
+    const renderSharedPixels = () => {
+      renderGrid(ctx);
+      pixels.forEach((color, key) => {
+        const [xRaw, yRaw] = key.split(",");
+        const x = Number(xRaw);
+        const y = Number(yRaw);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          return;
+        }
+        paintCell(ctx, x, y, color);
+      });
+    };
+
+    connectionStateRef.current = "connecting";
+    awarenessRef.current = awareness;
+    pixelsRef.current = pixels;
+    awareness.on("change", publishPresence);
+    pixels.observe(renderSharedPixels);
+    publishPresence();
+    renderSharedPixels();
+
+    const realtimeClient = new RealtimeClient({
+      doc,
+      awareness,
+      roomWsUrl: buildRoomWsUrl(roomId),
+      onConnectionStateChange: (state) => {
+        connectionStateRef.current = state;
+        publishPresence();
+      },
+    });
+
+    realtimeClient.connect();
+
+    return () => {
+      pixels.unobserve(renderSharedPixels);
+      awareness.off("change", publishPresence);
+      realtimeClient.disconnect();
+      awarenessRef.current = null;
+      pixelsRef.current = null;
+      connectionStateRef.current = "disconnected";
+    };
+  }, [onPresenceChange, roomId]);
 
   const transform = useMemo(
     () =>
@@ -186,8 +252,11 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
     if (pointers.length === 1) {
       gestureRef.current.mode = "draw";
       gestureRef.current.drawingPointerId = event.pointerId;
+      awarenessRef.current?.setLocalStateField("drawing", true);
 
-      fillPixel(ctx, event.clientX, event.clientY, currentView, canvas);
+      const snapped = getSnappedCell(event.clientX, event.clientY, currentView, canvas);
+      pixelsRef.current?.set(`${snapped.x},${snapped.y}`, DEFAULT_PIXEL_COLOR);
+      paintCell(ctx, snapped.x, snapped.y, DEFAULT_PIXEL_COLOR);
       return;
     }
 
@@ -205,6 +274,7 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
         initialMidX: midpoint.x,
         initialMidY: midpoint.y,
       };
+      awarenessRef.current?.setLocalStateField("drawing", false);
     }
   };
 
@@ -231,7 +301,9 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      fillPixel(ctx, event.clientX, event.clientY, viewRef.current, canvas);
+      const snapped = getSnappedCell(event.clientX, event.clientY, viewRef.current, canvas);
+      pixelsRef.current?.set(`${snapped.x},${snapped.y}`, DEFAULT_PIXEL_COLOR);
+      paintCell(ctx, snapped.x, snapped.y, DEFAULT_PIXEL_COLOR);
       return;
     }
 
@@ -275,6 +347,7 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
     if (remaining === 0) {
       gestureRef.current.mode = "none";
       gestureRef.current.drawingPointerId = null;
+      awarenessRef.current?.setLocalStateField("drawing", false);
       return;
     }
 
@@ -282,6 +355,7 @@ export default function Canvas({ roomId, onPresenceChange }: CanvasProps) {
       const [pointerId] = activePointersRef.current.keys();
       gestureRef.current.mode = "draw";
       gestureRef.current.drawingPointerId = pointerId;
+      awarenessRef.current?.setLocalStateField("drawing", true);
     }
   };
 
